@@ -29,9 +29,15 @@ read_data(pid_t tracee, unsigned long address, size_t size) {
     unsigned long data;
     printf("data at address: 0x%08lx\n", address);
     for (int i=0; i < size; i+=8) {
-        data = ptrace(PTRACE_PEEKDATA, tracee, address, NULL);
+        data = ptrace(PTRACE_PEEKDATA, tracee, address + i, NULL);
         print_reverse_word(data);
     }
+}
+
+void 
+write_data(pid_t tracee, unsigned long address, unsigned long long *data, size_t len) {
+    for(int i=0; i < len; i++)
+        ptrace(PTRACE_POKETEXT, tracee, address+i*8, data[i]);
 }
 
 void 
@@ -63,9 +69,13 @@ void run_attach(pid_t tracee, unsigned long map_address)
             printf("0x%llx\n", old_regs.rip);
             memcpy(&new_regs, &old_regs, sizeof(struct user_regs_struct));
             // new_regs.rip = map_address + 0x72;
-            new_regs.rip = old_regs.rip; // - 0x5e;
-            read_data(tracee, new_regs.rip, 0x5);
+            // new_regs.rip = old_regs.rip; // - 0x63; // - 0x5e;
             set_regs(tracee, &new_regs);
+
+            unsigned long long data[2] = { 0x0000003cb8ff3148, 0x000000000000050f };
+
+            write_data(tracee, new_regs.rip, data, 2);
+            read_data(tracee, new_regs.rip, 16);
             getchar();
         }
 
