@@ -34,6 +34,11 @@ read_data(pid_t tracee, unsigned long address, size_t size) {
     }
 }
 
+unsigned long long 
+read_word(pid_t tracee, unsigned long address, size_t size) {
+    return ptrace(PTRACE_PEEKDATA, tracee, address, NULL);
+}
+
 void 
 write_data(pid_t tracee, unsigned long address, unsigned long long *data, size_t len) {
     for(int i=0; i < len; i++)
@@ -66,24 +71,50 @@ void run_attach(pid_t tracee, unsigned long map_address)
 
         if (icounter == 0) {
             old_regs = read_regs(tracee);
-            printf("0x%llx\n", old_regs.rip);
+            printf("rip = 0x%llx\n", old_regs.rip);
             memcpy(&new_regs, &old_regs, sizeof(struct user_regs_struct));
             // new_regs.rip = map_address + 0x72;
             // new_regs.rip = old_regs.rip; // - 0x63; // - 0x5e;
             set_regs(tracee, &new_regs);
 
-            unsigned long long data[2] = { 0x0000003cb8ff3148, 0x000000000000050f };
+            unsigned long long rbp_0x10 = read_word(tracee, new_regs.rbp - 0x10, 8);
+            printf("rbp_0x10 = 0x%llx\n", rbp_0x10);
 
-            write_data(tracee, new_regs.rip, data, 2);
-            read_data(tracee, new_regs.rip, 16);
+            unsigned char data[] = { 
+                //word1 
+                0x48, 0x31, 0xff,
+                0xb8, 0x3c, 0x00, 0x00, 0x00,
+                // word2 
+                0x0f, 0x05, 
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
+            unsigned char data2[] = { 
+                0xbf, 0x01, 0x00, 0x00, 0x00,               // mov edi, 0x1
+                0x48, 0x8b, 0x75, /* WORD 1*/ 0xf0,                     // movabs rsi, 0x402000; check _start
+                0xba, 0x0e, 0x00, 0x00, 0x00,               // mov edx, 0xe
+                0xb8, 0x01, /* WORD 2 */ 0x00, 0x00, 0x00,               // mov eax, 0x1
+                0x0f, 0x05,                                 // syscall
+                0xcc, 
+                0x90, 0x90, /* WORD 3 */
+                // word1 
+                0x48, 0x31, 0xff,
+                0xb8, 0x3c, 0x00, 0x00, 0x00,
+                // word2 
+                0x0f, 0x05, 
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
+            write_data(tracee, new_regs.rip, (unsigned long long*)data2, 5);
+            read_data(tracee, new_regs.rip, 24);
             getchar();
         }
 
-        if (ptrace(PTRACE_SINGLESTEP, tracee, NULL, NULL) < 0) {
+        if (ptrace(PTRACE_CONT, tracee, NULL, NULL) < 0) {
             perror("Failed to single step");
             exit(1);
         }
         icounter++;
+        printf("Trapped %d\n", icounter);
+        getchar();
     } while(1);
 
     printf("[%d]: executed %d instructions\n", tracee, icounter);
